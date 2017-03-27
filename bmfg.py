@@ -61,6 +61,8 @@ def run(args):
     pretty_print = args.pretty_print
     premultiply = args.premultiply
     kerning = args.kerning
+    char_spacing = args.char_spacing
+    line_spacing = args.line_spacing
 
     font = pygame.freetype.Font(args.input_file, font_size)
     font.antialiased = antialiasing
@@ -146,7 +148,7 @@ def run(args):
     filename = os.path.join(output_dir, '{}.fnt'.format(output_name))
     root = ET.Element("font")
     info = ET.SubElement(root, "info", {'size': str(font_size), 'face': font.name})
-    common = ET.SubElement(root, "common", {'lineHeight': str(line_height)})
+    common = ET.SubElement(root, "common", {'lineHeight': str(line_height + line_spacing)})
     pages = ET.SubElement(root, "pages")
     for page_id, page in enumerate(texture_pages):
         ET.SubElement(pages, "page", {'id': str(page_id), 'file': page})
@@ -164,8 +166,8 @@ def run(args):
         attrib['letter'] = SPECIAL_CHARS.get(char, char)
         attrib['height'] = str(h - pt - pb)
         attrib['xoffset'] = str(0)
-        attrib['yoffset'] = str(line_height - h)
-        attrib['xadvance'] = str(int(x_advance + 0.5))
+        attrib['yoffset'] = str(line_height - h + rect.height - rect.top)
+        attrib['xadvance'] = str(int(x_advance + 0.5 + char_spacing))
         ET.SubElement(chars, "char", attrib)
     if kerning:
         kernings = ET.SubElement(root, "kernings", {'count': str(len(kerning_data))})
@@ -235,6 +237,12 @@ def main():
     parser.add_argument('--kerning',
                         action='store_true',
                         help='include kerning for character pairs')
+    parser.add_argument('--char-spacing',
+                        type=int, default=0,
+                        help='extra space between characters')
+    parser.add_argument('--line-spacing',
+                        type=int, default=0,
+                        help='extra space between lines')
     parser.add_argument('--pretty-print',
                         action='store_true',
                         help='use multiple lines and indentation for atlas')
