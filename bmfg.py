@@ -148,7 +148,7 @@ def run(args):
     filename = os.path.join(output_dir, '{}.fnt'.format(output_name))
     root = ET.Element("font")
     info = ET.SubElement(root, "info", {'size': str(font_size), 'face': font.name})
-    common = ET.SubElement(root, "common", {'lineHeight': str(line_height + line_spacing)})
+    common = ET.SubElement(root, "common", {'lineHeight': str(line_height + line_spacing + border_width * 2)})
     pages = ET.SubElement(root, "pages")
     for page_id, page in enumerate(texture_pages):
         ET.SubElement(pages, "page", {'id': str(page_id), 'file': page})
@@ -167,7 +167,7 @@ def run(args):
         attrib['height'] = str(h - pt - pb)
         attrib['xoffset'] = str(0)
         attrib['yoffset'] = str(line_height - h + rect.height - rect.top)
-        attrib['xadvance'] = str(int(x_advance + 0.5 + char_spacing))
+        attrib['xadvance'] = str(int(x_advance + 0.5 + char_spacing + border_width * 2))
         ET.SubElement(chars, "char", attrib)
     if kerning:
         kernings = ET.SubElement(root, "kernings", {'count': str(len(kerning_data))})
