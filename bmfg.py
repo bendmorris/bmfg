@@ -6,6 +6,9 @@ import pygame.freetype
 import rectpack
 
 DEFAULT_CHARS = r''' !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~'''
+SPECIAL_CHARS = {
+    ' ': 'space'
+}
 
 def parse_color(c):
     if len(c) == 6:
@@ -57,9 +60,12 @@ def run(args):
     texture_height = args.texture_height
     pretty_print = args.pretty_print
     premultiply = args.premultiply
+    kerning = args.kerning
 
     font = pygame.freetype.Font(args.input_file, font_size)
     font.antialiased = antialiasing
+    if kerning:
+        font.kerning = True
     surfaces = {}
 
     removed = set()
@@ -94,6 +100,17 @@ def run(args):
         char_surface.blit(surface, (pl + border_width, pt + border_width))
         surfaces[char] = char_surface
 
+    if kerning:
+        print('Generating kerning data...')
+        kerning_data = {}
+        for char1 in visible_chars:
+            for char2 in visible_chars:
+                w1 = font.get_rect(char1).width
+                w2 = font.get_rect(char2).width
+                wc = font.get_rect(char1 + char2).width
+                if wc != w1 + w2:
+                    kerning_data[(char1, char2)] = wc - w1 - w2
+
     print('Packing...')
     packer = rectpack.newPacker(rotation=False)
     packer.add_bin(texture_width, texture_height, count=len(visible_chars))
@@ -125,28 +142,40 @@ def run(args):
         pygame.image.save(texture, filename)
 
     print('Generating font atlas...')
+    line_height = font.get_sized_height()
     filename = os.path.join(output_dir, '{}.fnt'.format(output_name))
     root = ET.Element("font")
     info = ET.SubElement(root, "info", {'size': str(font_size), 'face': font.name})
-    common = ET.SubElement(root, "common", {'line_height': str(font.height)})
+    common = ET.SubElement(root, "common", {'lineHeight': str(line_height)})
     pages = ET.SubElement(root, "pages")
     for page_id, page in enumerate(texture_pages):
         ET.SubElement(pages, "page", {'id': str(page_id), 'file': page})
     chars = ET.SubElement(root, "chars", {'count': str(len(visible_chars))})
     for b, x, y, w, h, char in packer.rect_list():
         (_, _, _, _, x_advance, _) = font.get_metrics(char)[0]
+        rect = font.get_rect(char)
         attrib = {}
+        attrib['id'] = str(ord(char))
         attrib['width'] = str(w - pl - pr)
         attrib['page'] = str(b)
         attrib['x'] = str(x + pl)
         attrib['y'] = str(y + pt)
-        attrib['xoffset'] = str(0)
         attrib['chnl'] = '0'
-        attrib['letter'] = char
+        attrib['letter'] = SPECIAL_CHARS.get(char, char)
         attrib['height'] = str(h - pt - pb)
-        attrib['yoffset'] = str(0)
+        attrib['xoffset'] = str(0)
+        attrib['yoffset'] = str(line_height - h)
         attrib['xadvance'] = str(int(x_advance + 0.5))
-        char = ET.SubElement(root, "char", attrib)
+        ET.SubElement(chars, "char", attrib)
+    if kerning:
+        kernings = ET.SubElement(root, "kernings", {'count': str(len(kerning_data))})
+        for (c1, c2), amt in kerning_data.items():
+            attrib = {
+                'first': str(ord(c1)),
+                'second': str(ord(c2)),
+                'amount': str(amt),
+            }
+            ET.SubElement(root, "kerning", attrib)
     tree = ET.ElementTree(root)
     with open(filename, 'w') as output_file:
         output_file.write(ET.tostring(tree, pretty_print=pretty_print))
@@ -203,6 +232,9 @@ def main():
     parser.add_argument('--premultiply',
                         action='store_true',
                         help='save textures with premultiplied alpha')
+    parser.add_argument('--kerning',
+                        action='store_true',
+                        help='include kerning for character pairs')
     parser.add_argument('--pretty-print',
                         action='store_true',
                         help='use multiple lines and indentation for atlas')
