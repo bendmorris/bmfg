@@ -91,7 +91,9 @@ def run(args):
             border_surface = pygame.Surface((w, h), flags=pygame.SRCALPHA)
             for a in range(0, border_width * 2 + 2):
                 for b in range(0, border_width * 2 + 2):
-                    border_surface.blit(glyph_surface, (pl + a, pt + b))
+                    _a, _b = a - border_width, b - border_width
+                    if ((_a * _a + _b * _b) ** 0.5) < border_width:
+                        border_surface.blit(glyph_surface, (pl + a, pt + b))
 
             glyph, _ = font.render(char, fgcolor=pygame.Color(255, 255, 255, 255))
             glyph_mask = pygame.Surface((glyph.get_width(), glyph.get_height()), flags=pygame.SRCALPHA)
