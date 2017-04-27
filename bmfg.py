@@ -37,6 +37,11 @@ def premultiply_alpha(surface):
     alpha = pygame.surfarray.pixels_alpha(surface)
     array[:,:,:] *= np.uint8(alpha[:,:,None] / 255.)
 
+def overflow(n):
+    if (n > 0 and n & 0x80000000):
+        n -= 0x100000000
+    return n
+
 def run(args):
     pygame.display.init()
     pygame.freetype.init()
@@ -46,8 +51,10 @@ def run(args):
     output_dir = os.path.dirname(output_path)
 
     font_size = args.size
+    base_size = args.base_size or font_size
+    scale = float(font_size)/base_size
     visible_chars = sorted(set(args.chars))
-    antialiasing = hasattr(args, 'no_antialiasing') and args.no_antialiasing
+    antialiasing = hasattr(args, 'antialiasing') and args.antialiasing
     color = parse_color(args.color)
     background_color = parse_color(args.background)
     border_color = parse_color(args.border_color)
@@ -56,13 +63,17 @@ def run(args):
     pl = args.padding if args.padding_left is None else args.padding_left
     pr = args.padding if args.padding_right is None else args.padding_right
     border_width = args.border
-    texture_width = args.texture_width
-    texture_height = args.texture_height
+    max_texture_size = args.max_texture_size
+    texture_square = args.square
     pretty_print = args.pretty_print
     premultiply = args.premultiply
     kerning = args.kerning
     char_spacing = args.char_spacing
     line_spacing = args.line_spacing
+
+    border_width = int(border_width * scale + 0.5)
+    char_spacing = int(char_spacing * scale + 0.5)
+    line_spacing = int(line_spacing * scale + 0.5)
 
     font = pygame.freetype.Font(args.input_file, font_size)
     font.antialiased = antialiasing
@@ -80,14 +91,15 @@ def run(args):
 
     print('Rendering characters...')
     for char in visible_chars:
-        glyph, rect = font.render(char, fgcolor=color)
+        bgcolor = pygame.Color(color.r, color.g, color.b, 0)
+        glyph, rect = font.render(char, fgcolor=color, bgcolor=bgcolor)
         surface = upconvert(glyph)
         set_alpha(surface, color.a)
         w = surface.get_width() + pl + pr + border_width * 2
         h = surface.get_height() + pt + pb + border_width * 2
         char_surface = pygame.Surface((w, h), flags=pygame.SRCALPHA)
         if border_width > 0:
-            glyph_surface, _ = font.render(char, fgcolor=border_color)
+            glyph_surface, _ = font.render(char, fgcolor=border_color, bgcolor=bgcolor)
             border_surface = pygame.Surface((w, h), flags=pygame.SRCALPHA)
             for a in range(0, border_width * 2 + 2):
                 for b in range(0, border_width * 2 + 2):
@@ -116,18 +128,33 @@ def run(args):
                     kerning_data[(char1, char2)] = wc - w1 - w2
 
     print('Packing...')
-    packer = rectpack.newPacker(rotation=False)
-    packer.add_bin(texture_width, texture_height, count=len(visible_chars))
+    sizes = [128]
+    while sizes[-1] * 2 <= max_texture_size:
+        sizes.append(sizes[-1] * 2)
+    texture_width, texture_height = sizes[0], sizes[0] / 2
+    while texture_height < sizes[-1]:
+        if texture_height < texture_width:
+            texture_height *= 2
+        else:
+            texture_width *= 2
+        packer = rectpack.newPacker(rotation=False)
+        packer.add_bin(texture_width, texture_height, count=len(visible_chars))
 
-    for char, surface in surfaces.items():
-        packer.add_rect(surface.get_width(), surface.get_height(), char)
+        for char, surface in surfaces.items():
+            packer.add_rect(surface.get_width(), surface.get_height(), char)
 
-    packer.pack()
+        packer.pack()
 
+        if len(packer) == 1:
+            break
+
+    if texture_square and texture_height < texture_width:
+        texture_height = texture_width
     textures = {}
 
     print('Generating textures...')
     for b, x, y, w, h, char in packer.rect_list():
+        b += 1
         if b not in textures:
             textures[b] = pygame.Surface((texture_width, texture_height), flags=pygame.SRCALPHA)
             textures[b].fill(background_color)
@@ -156,8 +183,8 @@ def run(args):
         ET.SubElement(pages, "page", {'id': str(page_id), 'file': page})
     chars = ET.SubElement(root, "chars", {'count': str(len(visible_chars))})
     for b, x, y, w, h, char in packer.rect_list():
-        (_, _, _, _, x_advance, _) = font.get_metrics(char)[0]
-        rect = font.get_rect(char)
+        (min_x, max_x, min_y, max_y, x_advance, _) = font.get_metrics(char)[0]
+        min_x, max_x, min_y, max_y = map(overflow, (min_x, max_x, min_y, max_y))
         attrib = {}
         attrib['id'] = str(ord(char))
         attrib['width'] = str(w - pl - pr)
@@ -167,8 +194,8 @@ def run(args):
         attrib['chnl'] = '0'
         attrib['letter'] = SPECIAL_CHARS.get(char, char)
         attrib['height'] = str(h - pt - pb)
-        attrib['xoffset'] = str(0)
-        attrib['yoffset'] = str(line_height - h + rect.height - rect.top)
+        attrib['xoffset'] = str(min_x)
+        attrib['yoffset'] = str(line_height - h + line_spacing - min_y + border_width * 2)
         attrib['xadvance'] = str(int(x_advance + 0.5 + char_spacing + border_width * 2))
         ET.SubElement(chars, "char", attrib)
     if kerning:
@@ -195,6 +222,9 @@ def main():
     parser.add_argument('--size', '-s',
                         type=int, default=64,
                         help='font size')
+    parser.add_argument('--base-size',
+                        type=int, default=None,
+                        help='if provided, scale borders/spacing by size/base-size')
     parser.add_argument('--padding', '-p', type=int, default=2,
                         help='padding (all sides)')
     parser.add_argument('--padding-top',
@@ -221,18 +251,18 @@ def main():
     parser.add_argument('--background',
                         default='00000000',
                         help='background color (RRGGBB or RRGGBBAA)')
-    parser.add_argument('--texture-width',
+    parser.add_argument('--max-texture-size',
                         type=int, default=1024,
-                        help='texture width')
-    parser.add_argument('--texture-height',
-                        type=int, default=1024,
-                        help='texture height')
+                        help='max texture width/height')
+    parser.add_argument('--square',
+                        action='store_true',
+                        help='use the same size for texture width and height')
     parser.add_argument('--chars',
                         default=DEFAULT_CHARS,
                         help='character set to render')
-    parser.add_argument('--no-antialiasing',
+    parser.add_argument('--antialiasing',
                         action='store_true',
-                        help='disable antialiasing')
+                        help='use antialiasing when rendering glyphs')
     parser.add_argument('--premultiply',
                         action='store_true',
                         help='save textures with premultiplied alpha')
