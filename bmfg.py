@@ -50,9 +50,7 @@ def run(args):
     output_name = os.path.splitext(os.path.basename(output_path))[0]
     output_dir = os.path.dirname(output_path)
 
-    font_size = args.size
-    base_size = args.base_size or font_size
-    scale = float(font_size)/base_size
+    font_sizes = args.size
     visible_chars = sorted(set(args.chars))
     antialiasing = hasattr(args, 'antialiasing') and args.antialiasing
     color = parse_color(args.color)
@@ -62,70 +60,81 @@ def run(args):
     pb = args.padding if args.padding_bottom is None else args.padding_bottom
     pl = args.padding if args.padding_left is None else args.padding_left
     pr = args.padding if args.padding_right is None else args.padding_right
-    border_width = args.border
     max_texture_size = args.max_texture_size
     texture_square = args.square
     pretty_print = args.pretty_print
     premultiply = args.premultiply
     kerning = args.kerning
-    char_spacing = args.char_spacing
-    line_spacing = args.line_spacing
+    _border_width = args.border
+    _char_spacing = args.char_spacing
+    _line_spacing = args.line_spacing
 
-    border_width = int(border_width * scale + 0.5)
-    char_spacing = int(char_spacing * scale + 0.5)
-    line_spacing = int(line_spacing * scale + 0.5)
-
-    font = pygame.freetype.Font(args.input_file, font_size)
-    font.antialiased = antialiasing
-    if kerning:
-        font.kerning = True
     surfaces = {}
+    kerning_data = {}
 
-    removed = set()
-    for char in visible_chars:
-        if font.get_metrics(char)[0] is None:
-            removed.add(char)
-    if removed:
-        print('Removed the following unsupported chars: ' + ''.join(removed))
-        visible_chars = [x for x in visible_chars if x not in removed]
+    def get_font(font_size):
+        font = pygame.freetype.Font(args.input_file, font_size)
+        font.antialiased = antialiasing
+        if kerning:
+            font.kerning = True
+        return font
 
-    print('Rendering characters...')
-    for char in visible_chars:
-        bgcolor = pygame.Color(color.r, color.g, color.b, 0)
-        glyph, rect = font.render(char, fgcolor=color, bgcolor=bgcolor)
-        surface = upconvert(glyph)
-        set_alpha(surface, color.a)
-        w = surface.get_width() + pl + pr + border_width * 2
-        h = surface.get_height() + pt + pb + border_width * 2
-        char_surface = pygame.Surface((w, h), flags=pygame.SRCALPHA)
-        if border_width > 0:
-            glyph_surface, _ = font.render(char, fgcolor=border_color, bgcolor=bgcolor)
-            border_surface = pygame.Surface((w, h), flags=pygame.SRCALPHA)
-            for a in range(0, border_width * 2 + 2):
-                for b in range(0, border_width * 2 + 2):
-                    _a, _b = a - border_width, b - border_width
-                    if ((_a * _a + _b * _b) ** 0.5) < border_width:
-                        border_surface.blit(glyph_surface, (pl + a, pt + b))
+    for font_size in font_sizes:
+        surfaces[font_size] = {}
 
-            glyph, _ = font.render(char, fgcolor=pygame.Color(255, 255, 255, 255))
-            glyph_mask = pygame.Surface((glyph.get_width(), glyph.get_height()), flags=pygame.SRCALPHA)
-            glyph_mask.blit(glyph, (0, 0))
-            border_surface.blit(glyph_mask, (pl + border_width, pt + border_width), special_flags=pygame.BLEND_RGBA_SUB)
-            set_alpha(border_surface, border_color.a)
-            char_surface.blit(border_surface, (0, 0))
-        char_surface.blit(surface, (pl + border_width, pt + border_width))
-        surfaces[char] = char_surface
+        base_size = args.base_size or font_size
+        scale = float(font_size)/base_size
+        border_width = int(_border_width * scale + 0.5)
+        char_spacing = int(_char_spacing * scale + 0.5)
+        line_spacing = int(_line_spacing * scale + 0.5)
 
-    if kerning:
-        print('Generating kerning data...')
-        kerning_data = {}
-        for char1 in visible_chars:
-            for char2 in visible_chars:
-                w1 = font.get_rect(char1).width
-                w2 = font.get_rect(char2).width
-                wc = font.get_rect(char1 + char2).width
-                if wc != w1 + w2:
-                    kerning_data[(char1, char2)] = wc - w1 - w2
+        font = get_font(font_size)
+
+        removed = set()
+        for char in visible_chars:
+            if font.get_metrics(char)[0] is None:
+                removed.add(char)
+        if removed:
+            print('Removed the following unsupported chars: ' + ''.join(removed))
+            visible_chars = [x for x in visible_chars if x not in removed]
+
+        print('Rendering characters...')
+        for char in visible_chars:
+            bgcolor = pygame.Color(color.r, color.g, color.b, 0)
+            glyph, rect = font.render(char, fgcolor=color, bgcolor=bgcolor)
+            surface = upconvert(glyph)
+            set_alpha(surface, color.a)
+            w = surface.get_width() + pl + pr + border_width * 2
+            h = surface.get_height() + pt + pb + border_width * 2
+            char_surface = pygame.Surface((w, h), flags=pygame.SRCALPHA)
+            if border_width > 0:
+                glyph_surface, _ = font.render(char, fgcolor=border_color, bgcolor=bgcolor)
+                border_surface = pygame.Surface((w, h), flags=pygame.SRCALPHA)
+                for a in range(0, border_width * 2 + 2):
+                    for b in range(0, border_width * 2 + 2):
+                        _a, _b = a - border_width, b - border_width
+                        if ((_a * _a + _b * _b) ** 0.5) < border_width:
+                            border_surface.blit(glyph_surface, (pl + a, pt + b))
+
+                #glyph, _ = font.render(char, fgcolor=pygame.Color(255, 255, 255, 255))
+                #glyph_mask = pygame.Surface((glyph.get_width(), glyph.get_height()), flags=pygame.SRCALPHA)
+                #glyph_mask.blit(glyph, (0, 0))
+                #border_surface.blit(glyph_mask, (pl + border_width, pt + border_width), special_flags=pygame.BLEND_RGBA_SUB)
+                set_alpha(border_surface, border_color.a)
+                char_surface.blit(border_surface, (0, 0))
+            char_surface.blit(surface, (pl + border_width, pt + border_width))
+            surfaces[font_size][char] = char_surface
+
+        if kerning:
+            print('Generating kerning data...')
+            kerning_data[font_size] = {}
+            for char1 in visible_chars:
+                for char2 in visible_chars:
+                    w1 = font.get_rect(char1).width
+                    w2 = font.get_rect(char2).width
+                    wc = font.get_rect(char1 + char2).width
+                    if wc != w1 + w2:
+                        kerning_data[font_size][(char1, char2)] = wc - w1 - w2
 
     print('Packing...')
     sizes = [128]
@@ -140,8 +149,9 @@ def run(args):
         packer = rectpack.newPacker(rotation=False)
         packer.add_bin(texture_width, texture_height, count=len(visible_chars))
 
-        for char, surface in surfaces.items():
-            packer.add_rect(surface.get_width(), surface.get_height(), char)
+        for font_size in font_sizes:
+            for char, surface in surfaces[font_size].items():
+                packer.add_rect(surface.get_width(), surface.get_height(), (font_size, char))
 
         packer.pack()
 
@@ -153,12 +163,12 @@ def run(args):
     textures = {}
 
     print('Generating textures...')
-    for b, x, y, w, h, char in packer.rect_list():
+    for b, x, y, w, h, (font_size, char) in packer.rect_list():
         b += 1
         if b not in textures:
             textures[b] = pygame.Surface((texture_width, texture_height), flags=pygame.SRCALPHA)
             textures[b].fill(background_color)
-        textures[b].blit(surfaces[char], (x, y))
+        textures[b].blit(surfaces[font_size][char], (x, y))
 
     texture_pages = []
     for texture_id, texture in textures.items():
@@ -172,44 +182,54 @@ def run(args):
             premultiply_alpha(texture)
         pygame.image.save(texture, filename)
 
-    print('Generating font atlas...')
-    line_height = font.get_sized_height()
-    filename = os.path.join(output_dir, '{}.fnt'.format(output_name))
-    root = ET.Element("font")
-    info = ET.SubElement(root, "info", {'size': str(font_size), 'face': font.name})
-    common = ET.SubElement(root, "common", {'lineHeight': str(line_height + line_spacing + border_width * 2)})
-    pages = ET.SubElement(root, "pages")
-    for page_id, page in enumerate(texture_pages):
-        ET.SubElement(pages, "page", {'id': str(page_id), 'file': page})
-    chars = ET.SubElement(root, "chars", {'count': str(len(visible_chars))})
-    for b, x, y, w, h, char in packer.rect_list():
-        (min_x, max_x, min_y, max_y, x_advance, _) = font.get_metrics(char)[0]
-        min_x, max_x, min_y, max_y = map(overflow, (min_x, max_x, min_y, max_y))
-        attrib = {}
-        attrib['id'] = str(ord(char))
-        attrib['width'] = str(w - pl - pr)
-        attrib['page'] = str(b)
-        attrib['x'] = str(x + pl)
-        attrib['y'] = str(y + pt)
-        attrib['chnl'] = '0'
-        attrib['letter'] = SPECIAL_CHARS.get(char, char)
-        attrib['height'] = str(h - pt - pb)
-        attrib['xoffset'] = str(min_x)
-        attrib['yoffset'] = str(line_height - h + line_spacing - min_y + border_width * 2)
-        attrib['xadvance'] = str(int(x_advance + 0.5 + char_spacing + border_width * 2))
-        ET.SubElement(chars, "char", attrib)
-    if kerning:
-        kernings = ET.SubElement(root, "kernings", {'count': str(len(kerning_data))})
-        for (c1, c2), amt in kerning_data.items():
-            attrib = {
-                'first': str(ord(c1)),
-                'second': str(ord(c2)),
-                'amount': str(amt),
-            }
-            ET.SubElement(root, "kerning", attrib)
-    tree = ET.ElementTree(root)
-    with open(filename, 'w') as output_file:
-        output_file.write(ET.tostring(tree, pretty_print=pretty_print))
+    print('Generating font atlases...')
+    for font_size in font_sizes:
+        base_size = args.base_size or font_size
+        scale = float(font_size)/base_size
+        border_width = int(_border_width * scale + 0.5)
+        char_spacing = int(_char_spacing * scale + 0.5)
+        line_spacing = int(_line_spacing * scale + 0.5)
+
+        font = get_font(font_size)
+        line_height = font.get_sized_height()
+        filename = os.path.join(output_dir, '{}.{}.fnt'.format(output_name, font_size))
+        root = ET.Element("font")
+        info = ET.SubElement(root, "info", {'size': str(font_size), 'face': font.name})
+        common = ET.SubElement(root, "common", {'lineHeight': str(line_height + line_spacing + border_width * 2)})
+        pages = ET.SubElement(root, "pages")
+        for page_id, page in enumerate(texture_pages):
+            ET.SubElement(pages, "page", {'id': str(page_id), 'file': page})
+        chars = ET.SubElement(root, "chars", {'count': str(len(visible_chars))})
+        for b, x, y, w, h, (size, char) in packer.rect_list():
+            if size != font_size: continue
+
+            (min_x, max_x, min_y, max_y, x_advance, _) = font.get_metrics(char)[0]
+            min_x, max_x, min_y, max_y = map(overflow, (min_x, max_x, min_y, max_y))
+            attrib = {}
+            attrib['id'] = str(ord(char))
+            attrib['width'] = str(w - pl - pr)
+            attrib['page'] = str(b)
+            attrib['x'] = str(x + pl)
+            attrib['y'] = str(y + pt)
+            attrib['chnl'] = '0'
+            attrib['letter'] = SPECIAL_CHARS.get(char, char)
+            attrib['height'] = str(h - pt - pb)
+            attrib['xoffset'] = str(min_x)
+            attrib['yoffset'] = str(int(0.5 + line_height + line_spacing - h - min_y))
+            attrib['xadvance'] = str(int(0.5 + x_advance + char_spacing + border_width * 2))
+            ET.SubElement(chars, "char", attrib)
+        if kerning:
+            kernings = ET.SubElement(root, "kernings", {'count': str(len(kerning_data))})
+            for (c1, c2), amt in kerning_data.items():
+                attrib = {
+                    'first': str(ord(c1)),
+                    'second': str(ord(c2)),
+                    'amount': str(amt),
+                }
+                ET.SubElement(root, "kerning", attrib)
+        tree = ET.ElementTree(root)
+        with open(filename, 'w') as output_file:
+            output_file.write(ET.tostring(tree, pretty_print=pretty_print))
 
     print('Done')
     pygame.quit()
@@ -220,8 +240,8 @@ def main():
     parser.add_argument('--output', '-o', nargs='?', default=None,
                         help='output file path (extension ignored, none for same as input file)')
     parser.add_argument('--size', '-s',
-                        type=int, default=64,
-                        help='font size')
+                        type=int, default=64, nargs='+',
+                        help='font sizes')
     parser.add_argument('--base-size',
                         type=int, default=None,
                         help='if provided, scale borders/spacing by size/base-size')
